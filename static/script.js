@@ -437,9 +437,8 @@ async function checkServerHealth() {
             statusIndicator.innerHTML = '<i class="fas fa-circle"></i> Online';
             statusIndicator.style.color = '#28a745';
             
-            // Update title with configuration status
-            const title = `${data.openai_configured ? '🤖' : '⚠️'} AI ${data.openai_configured ? 'Active' : 'Limited'} | ${data.google_sheets_configured ? '📊' : '📝'} Sheets ${data.google_sheets_configured ? 'Connected' : 'Disabled'}`;
-            document.title = `${title} - Course Assistant`;
+            // Force constant title
+            document.title = 'Course Assistant';
         } else {
             throw new Error('Server unhealthy');
         }
@@ -448,6 +447,8 @@ async function checkServerHealth() {
         statusIndicator.innerHTML = '<i class="fas fa-circle"></i> Offline';
         statusIndicator.style.color = '#dc3545';
         console.error('Health check failed:', error);
+        // Keep constant title even if offline
+        document.title = 'Course Assistant';
     }
 }
 

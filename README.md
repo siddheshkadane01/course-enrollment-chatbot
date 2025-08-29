@@ -2,12 +2,31 @@
 
 A simple, human-friendly AI chatbot that helps students explore a course, ask questions, and register — all in one place. It runs on FastAPI (backend) with a clean web interface (HTML/CSS/JS). OpenAI powers the conversation, and Google Sheets can store registrations.
 
+Think of it as a conversational landing page for your course: visitors get instant answers, see the essentials, and can register without back-and-forth emails.
+
 ## What it does
 - Chat with an AI about the course (topics, price, duration, outcomes)
 - Keeps short conversation context for more natural replies
 - One-click registration form (optional Google Sheets saving)
 - Handy API docs at /docs for testing
 - Clean, responsive frontend you can share quickly
+
+## Why it’s useful
+- Reduces repetitive Q&A and saves support time
+- Increases conversion with an interactive, friendly UX
+- API-first design makes it easy to integrate elsewhere
+
+## How it works (at a glance)
+- Frontend (HTML/CSS/JS) sends messages to FastAPI
+- FastAPI calls OpenAI (GPT-4o-mini) and returns a reply
+- Short-term context keeps chats coherent
+- Optional Google Sheets stores registrations for easy follow-up
+
+## Customize in minutes
+- UI: tweak colors/fonts in `static/style.css`
+- Model: change `OPENAI_MODEL` in `.env`
+- Course info: adjust the `/course-info` response in `main.py`
+- Form: edit fields in `static/index.html` and `/register` handler
 
 ## Tech
 - Backend: FastAPI, Pydantic

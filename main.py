@@ -17,7 +17,8 @@ Configuration:
 
 import os
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+import re
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -68,6 +69,9 @@ FAQ_RESPONSES = {
 
 # API Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your-openai-api-key-here")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
+
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Course Registrations")
 
@@ -91,13 +95,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OpenAI client
-try:
-    from openai import OpenAI
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-except Exception as e:
-    print(f"OpenAI client initialization error: {e}")
-    openai_client = None
+# Initialize OpenAI client (only when not in demo mode)
+openai_client = None
+if not DEMO_MODE:
+    try:
+        from openai import OpenAI
+        if OPENAI_API_KEY and OPENAI_API_KEY != "your-openai-api-key-here":
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        else:
+            print("OpenAI API key not configured; running without OpenAI.")
+    except Exception as e:
+        print(f"OpenAI client initialization error: {e}")
+        openai_client = None
 
 # In-memory storage for conversation context (in production, use Redis or database)
 conversation_contexts: Dict[str, List[Dict]] = {}
@@ -230,6 +239,76 @@ Your role is to:
 Keep responses conversational and helpful. If you don't know something specific about the course, refer them to contact support.
 """
 
+def generate_demo_response(user_message: str, context: List[Dict]) -> str:
+    """Fallback/demo response generator without external AI calls."""
+    text = user_message.lower()
+
+    # Greeting and first message
+    if not context and any(g in text for g in ["hello", "hi", "hey", "start", "help", "info"]):
+        return (
+            f"Hello! 👋 I'm your Course Assistant for {COURSE_INFO['name']}.\n\n"
+            f"Here are the basics:\n"
+            f"• Duration: {COURSE_INFO['duration']}\n"
+            f"• Price: {COURSE_INFO['price']}\n"
+            f"• Schedule: {COURSE_INFO['schedule']}\n"
+            f"• Format: {COURSE_INFO['format']}\n\n"
+            "Ask about syllabus, price, duration, schedule, benefits, instructor, or say 'register' to sign up."
+        )
+
+    # Simple keyword intents
+    synonyms = {
+        "duration": ["duration", "how long", "weeks", "months"],
+        "price": ["price", "cost", "fee", "fees", "pricing"],
+        "schedule": ["schedule", "timing", "time", "when", "days"],
+        "benefits": ["benefits", "outcomes", "what will i get", "value"],
+        "instructor": ["instructor", "teacher", "mentor", "who teaches"],
+        "format": ["format", "online", "offline", "live", "recorded"],
+        "syllabus": ["syllabus", "curriculum", "topics", "what will i learn"],
+        "register": ["register", "enroll", "enrol", "sign up"],
+        "certificate": ["certificate", "certification"],
+    }
+
+    def match(key: str) -> bool:
+        return any(word in text for word in synonyms[key])
+
+    if match("duration"):
+        return FAQ_RESPONSES["duration"]
+    if match("price"):
+        return FAQ_RESPONSES["price"]
+    if match("schedule"):
+        return FAQ_RESPONSES["schedule"]
+    if match("benefits"):
+        return FAQ_RESPONSES["benefits"]
+    if match("instructor"):
+        return FAQ_RESPONSES["instructor"]
+    if match("format"):
+        return FAQ_RESPONSES["format"]
+    if match("certificate"):
+        return FAQ_RESPONSES["certificate"]
+    if match("register"):
+        return (
+            "Great! To register, click the Register button in the UI or send your "
+            "name, email, and phone here. I’ll confirm once it’s saved."
+        )
+    if match("syllabus"):
+        return (
+            "Syllabus snapshot:\n"
+            "• Python foundations → data structures → OOP\n"
+            "• Web basics and APIs\n"
+            "• Data analysis workflows\n"
+            "• Mini‑projects and portfolio tips\n"
+            f"You’ll also get: {COURSE_INFO['benefits'][0]}, {COURSE_INFO['benefits'][1]}."
+        )
+
+    # Default helpful overview
+    return (
+        f"Here's a quick overview of {COURSE_INFO['name']}:\n"
+        f"• Duration: {COURSE_INFO['duration']} | Price: {COURSE_INFO['price']}\n"
+        f"• Schedule: {COURSE_INFO['schedule']} | Format: {COURSE_INFO['format']}\n"
+        "Ask me about syllabus, price, dates, or say 'register' to get started."
+    )
+
+
 def generate_ai_response(user_message: str, context: List[Dict]) -> str:
     """Generate AI response using OpenAI GPT"""
     try:
@@ -260,8 +339,12 @@ What would you like to know about the course?"""
             if keyword in user_lower:
                 return response
 
+        # If in demo mode or OpenAI is unavailable, use demo response
+        if DEMO_MODE or not openai_client:
+            return generate_demo_response(user_message, context)
+
         # Build conversation history for context
-        messages = [{"role": "system", "content": get_system_prompt()}]
+        messages: List[Dict[str, str]] = [{"role": "system", "content": get_system_prompt()}]
         
         # Add conversation context
         for exchange in context:
@@ -272,26 +355,24 @@ What would you like to know about the course?"""
         messages.append({"role": "user", "content": user_message})
         
         # Generate response using OpenAI
-        if not openai_client:
-            return "I'm sorry, the AI service is not available right now. Please try again later or contact support."
-            
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
+                model=OPENAI_MODEL,
+                messages=messages,  # type: ignore[arg-type]
                 max_tokens=500,
                 temperature=0.7
             )
         except Exception as e:
             print(f"OpenAI API call error: {e}")
-            return "I'm sorry, I'm having trouble processing your request right now. Please try again or contact our support team for assistance."
+            # Fall back to demo response on any error
+            return generate_demo_response(user_message, context)
         
         content = response.choices[0].message.content
         return content.strip() if content else "I'm sorry, I couldn't generate a response."
     
     except Exception as e:
         print(f"OpenAI API error: {e}")
-        return "I'm sorry, I'm having trouble processing your request right now. Please try again or contact our support team for assistance."
+        return generate_demo_response(user_message, context)
 
 # ===== API ENDPOINTS =====
 
@@ -443,8 +524,10 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "openai_configured": bool(OPENAI_API_KEY and OPENAI_API_KEY != "your-openai-api-key-here"),
-        "google_sheets_configured": os.path.exists(GOOGLE_CREDENTIALS_PATH)
+    "openai_configured": bool(OPENAI_API_KEY and OPENAI_API_KEY != "your-openai-api-key-here"),
+    "google_sheets_configured": os.path.exists(GOOGLE_CREDENTIALS_PATH),
+    "ai_mode": "demo" if DEMO_MODE or not (OPENAI_API_KEY and OPENAI_API_KEY != "your-openai-api-key-here") else "openai",
+    "model": OPENAI_MODEL
     }
 
 # ===== ERROR HANDLERS =====

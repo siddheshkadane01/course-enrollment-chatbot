@@ -29,6 +29,10 @@ from pydantic import BaseModel, EmailStr
 import openai
 import gspread
 from google.oauth2.service_account import Credentials
+from dotenv import load_dotenv
+
+# Load environment variables from .env (if present) before reading them below
+load_dotenv()
 
 # ===== CONFIGURATION SECTION =====
 # Edit these dictionaries to customize your course information
